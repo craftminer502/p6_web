@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css">
+    <script type="text/javascript" src="http://static.robotwebtools.org/EventEmitter2/current/eventemitter2.js"></script>
+    <script type="text/javascript" src="http://static.robotwebtools.org/roslibjs/current/roslib.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"></script>
+<script type="text/javascript" type="text/javascript">
+
+  $(function() {
+
+    let img = document.getElementById('map');
+    //console.log("h: "+ img.naturalHeight +", w: "+ img.naturalWidth +", imgw: "+ $("#map_container").width());
+    /*$("#map").animate({
+        "margin-top": -((img.naturalHeight / 2) - ($("#map_container").height() / 2)) +"px",
+        "margin-left": -((img.naturalWidth / 2) - ($("#map_container").width() / 2)) +"px"
+    });*/
+    //console.log(-((img.naturalHeight / 2) + ($("#map_container").height() / 2)));
+    //get the current x and y of the mouse pointer
+    /*$("#turtle").click(function(event) {
+        let x = Math.round(event.pageX - $(this).offset().left);
+        let y = Math.round(event.pageX - $(this).offset().left);
+        console.log((x - (info.width / 2)) * info.resolution);
+        console.log(-(y - (info.width / 2)) * info.resolution);
+        //alert("X: "+ x +", Y: "+ y);
+        console.log(JSON.stringify(goal.goalMessage.goal.target_pose.pose.position));
+        goal.goalMessage.goal_id.id = 'goal_' + Math.random();
+        goal.goalMessage.goal.target_pose.pose.position.x = ((x - (info.width / 2)) * info.resolution);
+        goal.goalMessage.goal.target_pose.pose.position.y = ((y - (info.width / 2)) * info.resolution);
+        goal.send();
+    });*/
+  });
+
+  let agvX = 0;
+  let agvY = 0;
+  let agvZ = 0;
+  let orientation = 0;
+  let agvX_pixel = 0;
+  let agvY_pixel = 0;
+  let designing = false;
+  let waypoints = [];
+
+  class Teacher {
+      constructor() {
+        this._pointName = $('#pointName').val();
+        this._pointType = $('#pointType').val();
+        this._palletType = $('#palletType').children('option:selected').html();
+        this._maxLifting = $('#maxLifting').val();
+        this._agvX = agvX;
+        this._agvY = agvY;
+        this._agvZ = agvZ;
+        this._orientation = orientation;
+        this._agvX_pixel = agvX_pixel;
+        this._agvY_pixel = agvY_pixel;
+      }
+      get pointName() {
+        return this._pointName;
+      }
+      get pointType() {
+        return this._pointType;
+      }
+      get palletType() {
+        return this._palletType;
+      }
+      get maxLifting() {
+        return this._maxLifting;
+      }
+  }
+
+Teacher.list = [];
+
+function saveTeachPoint() {
+  let t = $('.form-control');
+  for(i = 0; i < t.length; i++) {
+    if(!t[i].validity.valid) {
+      console.log("You must fill every field!");
+      return;
+    }
+  }
+  Teacher.list.push(new Teacher());
+  $("#teachPoints").empty();
+  Teacher.list.forEach(function(item, index) {
+      console.log(item._agvX_pixel);
+      $("#teachPoints").append(
+          $('<div id="mappedteachpoints-'+ item.pointName +'" class="teachc"></div>')
+              .css('position', 'absolute')
+              .css('top', item._agvY_pixel +'px')
+              .css('left', item._agvX_pixel +'px')
+              .css('width', 5)
+              .css('height', 5)
+              .css('background-color', 'green')
+      );
+      $('#mappedteachpoints-'+ item.pointName).click(function() {
+          waypoints.push(item);
+          poseArray.poses.push({position : {
+              x : item._agvX,
+              y : item._agvY,
+              z : item._agvZ
+          }, orientation : {
+              x : item._orientation.x,
+              y : item._orientation.y,
+              z : item._orientation.z,
+              w : item._orientation.w
+          }});
+          $('#designbox').empty();
+          waypoints.forEach(function(item, index) {
+              $('#designbox').append($('<select id="point'+ index +'" class="form-control"></select>'));
+              /*Teacher.list.forEach(function(item, index) {
+                  $('#point'+ index).append($('<option>'+ item.pointName +'</option>'));
+              });*/
+              $('#point'+ index).append($('<option>'+ item.pointName +'</option>'));
+              $('#point'+ index).val(item.pointName).change();
+          });
+          $('#designbox').append($('<button type="button" type="submit" class="btn btn-outline-primary btn-block" onclick="publishPath();" style="font-size: 24px;">Pathlish</button>'));
+      });
+  });
+  console.log('%cDumping teach point array', 'color: #FFAA00');
+  console.table(Teacher.list);
+}
+
+function designRoute() {
+    designing = !designing;
+    console.log(designing);
+    $('#designer').html(designing ? 'Design route' : 'End route');
+    if(designing) {
+        $("#turtle").hide();
+        $('#infobox').hide();
+        $('#designbox').show();
+        $('#designbox').empty();
+    } else {
+        $("#turtle").show();
+        $('#designbox').hide();
+        $('#infobox').show();
+    }
+}
+
+  let ros = new ROSLIB.Ros({
+      url : 'ws://0.0.0.0:2565'
+  });
+
+  let move_base = new ROSLIB.ActionClient({
+      ros : ros,
+      serverName : '/move_base',
+      actionName : 'move_base_msgs/MoveBaseAction'
+  });
+
+  let goal = new ROSLIB.Goal({
+      actionClient : move_base,
+      goalMessage : {
+        target_pose : {
+            header : {
+                seq : 0,
+                stamp : {
+                    secs : 0,
+                    nsecs : 0
+                },
+                frame_id : 'map'
+            },
+            pose : {
+                position : {
+                    x : 1.0,
+                    y : 1.0,
+                    z : 0.0
+                },
+                orientation : {
+                    w : 1.0
+                }
+            }
+        }
+    }
+  });
+
+  let map = new ROSLIB.Topic({
+      ros : ros,
+      //name : '/scan',
+      //messageType : 'sensor_msgs/LaserScan'
+      name : '/map',
+      messageType : 'nav_msgs/OccupancyGrid'
+  });
+
+  let odom = new ROSLIB.Topic({
+      ros : ros,
+      //name : '/scan',
+      //messageType : 'sensor_msgs/LaserScan'
+      name : '/odom',
+      messageType : 'nav_msgs/Odometry'
+  });
+
+  let pathlisher = new ROSLIB.Topic({
+      ros: ros,
+      name: '/uipath',
+      messageType : 'geometry_msgs/PoseArray'
+  });
+  pathlisher.publish();
+
+  let poseArray = new ROSLIB.Message({
+          header : {
+              seq : 0,
+              stamp : {
+                  secs : 0,
+                  nsecs : 0
+              },
+              frame_id : 'map'
+          },
+          poses : []
+  });
+
+  function publishPath() {
+      pathlisher.publish(poseArray);
+      //poseArray.poses.length = 0;
+  }
+
+  let info = undefined;
+
+  function mapSub(msg) {
+      //map.unsubscribe();
+      //console.log('Received message on '+ map.name);
+      //console.log(JSON.stringify(msg.info));
+      info = msg.info;
+      //console.log(resolution);
+      $("#map").animate({
+          "width": msg.info.width +"px",
+          "height": msg.info.height +"px"
+      });
+      $("#turtle").animate({
+          "width": msg.info.width +"px",
+          "height": msg.info.height +"px"
+      });
+      $("#map").empty();
+      jQuery.each(msg.data, function(i, val) {
+          if(val == 100) {
+              $("#map").append(
+                  $('<div></div>')
+                      .css('position', 'absolute')
+                      .css('top', Math.floor(i / msg.info.width) +'px')
+                      .css('left', (i % msg.info.width) +'px')
+                      .css('width', 1)
+                      .css('height', 1)
+                      .css('background-color', 'black')
+              );
+          }
+      });
+  }
+
+  let x, y = undefined;
+
+  function odomSub(msg) {
+
+      if(info == undefined) return 0;
+      //odom.unsubscribe();
+      //console.log(JSON.stringify(info.width));
+      //console.log(JSON.stringify(msg.pose.pose.position.x));
+      //console.log(JSON.stringify(info.resolution));
+
+      x = Math.round((msg.pose.pose.position.x / info.resolution) + (info.width / 2));
+      y = Math.round((-msg.pose.pose.position.y / info.resolution) + (info.height / 2))
+
+      //console.log("turtle at X: "+ x +", Y: "+ y);
+      //console.log(msg.pose.pose.position.y);
+      //console.log(-(y - (info.width / 2)) * info.resolution);
+      $("#AGV_posX").empty();
+      $("#AGV_posX").append(msg.pose.pose.position.x);
+      $("#AGV_posY").empty();
+      $("#AGV_posY").append(msg.pose.pose.position.y);
+      $("#AGV_posZ").empty();
+      $("#AGV_posZ").append(msg.pose.pose.position.z);
+      $("#AGV_rotZ").empty();
+      $("#AGV_rotZ").append(msg.pose.pose.orientation.z);
+      $("#position").val(JSON.stringify(msg.pose.pose.position));
+      $("#orientation").val(JSON.stringify(msg.pose.pose.orientation));
+      agvX = msg.pose.pose.position.x;
+      agvX_pixel = x;
+      agvY_pixel = y;
+      agvY = msg.pose.pose.position.y;
+      agvZ = msg.pose.pose.position.z;
+      orientation = msg.pose.pose.orientation;
+      $("#turtle").empty();
+      $("#turtle").append(
+          $('<div></div>')
+              .css('position', 'absolute')
+              .css('top', y +'px')
+              .css('left', x +'px')
+              .css('width', 5)
+              .css('height', 5)
+              .css('background-color', 'red')
+      );
+  }
+
+  map.subscribe(mapSub);
+  odom.subscribe(odomSub);
+  /*setInterval(function() {
+      map.subscribe(mapSub);
+  }, 5000);*/
+</script>
+</head>
+
+<body>
+  <div class="container-fluid">
+      <div class="row">
+          <div class="col-sm-12">
+              <h2 class="text-center font-weight-bold"><u>Teach point interface</u></h2>
+          </div>
+      </div>
+      <div class="row">
+          <div id="infobox" class="col-sm-5 offset-sm-1">
+              <div class="row">
+                    <h4 class="font-weight-bold">AGV position</h4>
+              </div>
+              <h5 class="font-weight-bold">X: <span id="AGV_posX" class="font-weight-normal"></span></h5>
+              <h5 class="font-weight-bold" style="margin-top: -10px;">Y: <span id="AGV_posY" class="font-weight-normal"></span></h5>
+              <h5 class="font-weight-bold" style="margin-top: -10px;">Z: <span id="AGV_posZ" class="font-weight-normal"></span></h5>
+              <div class="row">
+                  <h4 class="font-weight-bold">AGV orientation</h4>
+              </div>
+              <h5 class="font-weight-bold">RotZ: <span id="AGV_rotZ" class="font-weight-normal"></span></h5>
+          </div>
+          <div id="designbox" class="col-sm-5 offset-sm-1" style="display: none;">
+              <h3 class="text-center font-weight-bold">AGV Route</h2>
+          </div>
+          <div class="col-sm-5">
+              <div class="row">
+                  <div id="map_container" style="position: relative; overflow: hidden; width: 100%; height: 576px;">
+                      <div id="map" style="height: 50px; width: 50px; position: absolute; top: 0px; left: 0px; background-color: grey;">
+
+                      </div>
+                      <div id="turtle" style="height: 50px; width: 50px; position: absolute; top: 0px; left: 0px;">
+
+                      </div>
+                      <div id="teachPoints" style="height: 50px; width: 50px; position: absolute; top: 0px; left: 0px;">
+
+                      </div>
+                  </div>
+              </div>
+          </div>
+      </div>
+      <div class="row">
+          <div class="col-sm-12">
+              <h3 class="text-center font-weight-bold">Teach current position</h2>
+          </div>
+      </div>
+      <form id="teachForm">
+        <div class="row align-items-end">
+          <div class="col-sm-5">
+            <div class="row">
+              <label for="pointName" class="col-sm-3 offset-sm-1 col-form-label font-weight-bold">Point name: </label>
+              <div class="col-sm-8">
+                <input id="pointName" type="text" class="form-control" placeholder="" required>
+              </div>
+            </div>
+            <div class="row">
+              <label for="pointType" class="col-sm-3 offset-sm-1 col-form-label font-weight-bold">Point type: </label>
+              <div class="col-sm-8">
+                <select id="pointType" class="form-control">
+                  <option>Pick point</option>
+                  <option>Drop point</option>
+                  <option>Ambi point</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <label for="palletType" class="col-sm-3 offset-sm-1 col-form-label font-weight-bold">Pallet type: </label>
+              <div class="col-sm-8">
+                <select id="palletType" class="form-control">
+                  <option>Pallettype 1</option>
+                  <option>Pallettype 2</option>
+                  <option>Pallettype 3</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <label for="maxLifting" class="col-sm-3 offset-sm-1 col-form-label font-weight-bold">Max lifting: </label>
+              <div class="col-sm-8">
+                <input id="maxLifting" type="text" class="form-control" placeholder="" required>
+              </div>
+            </div>
+          </div>
+          <div class="col-sm-4">
+            <div class="row">
+              <label for="position" class="col-sm-3 col-form-label font-weight-bold">Position: </label>
+              <div class="col-sm-8">
+                <input id="position" type="text" class="form-control" placeholder="" readonly>
+              </div>
+            </div>
+            <div class="row">
+              <label for="orientation" class="col-sm-3 col-form-label font-weight-bold">Orientation: </label>
+              <div class="col-sm-8">
+                <input id="orientation" type="text" class="form-control" placeholder="" readonly>
+              </div>
+            </div>
+            <div class="row">
+              <label for="forkDist" class="col-sm-3 col-form-label font-weight-bold">Fork dist.: </label>
+              <div class="col-sm-8">
+                <input id="forkDist" type="text" class="form-control" placeholder="" readonly>
+              </div>
+            </div>
+          </div>
+      <div class="col-sm-2">
+        <button type="button" type="submit" class="btn btn-outline-success btn-block" onclick="saveTeachPoint();" style="font-size: 24px;">Teach point</button>
+        <button id="designer" type="button" type="submit" class="btn btn-outline-primary btn-block" onclick="designRoute();" style="font-size: 24px;">Design route</button>
+      </div>
+    </div>
+    </form>
+  </div>
+</body>
+</html>
