@@ -131,6 +131,7 @@ function designRoute() {
         $('#infobox').hide();
         $('#designbox').show();
         $('#designbox').empty();
+        $('#designbox').append($('<h3 class="text-center font-weight-bold">AGV Route</h2>'));
     } else {
         $("#turtle").show();
         $('#designbox').hide();
@@ -217,7 +218,7 @@ function designRoute() {
   let info = undefined;
 
   function mapSub(msg) {
-      //map.unsubscribe();
+      map.unsubscribe();
       //console.log('Received message on '+ map.name);
       //console.log(JSON.stringify(msg.info));
       info = msg.info;
@@ -256,28 +257,38 @@ function designRoute() {
       //console.log(JSON.stringify(msg.pose.pose.position.x));
       //console.log(JSON.stringify(info.resolution));
 
-      x = Math.round((msg.pose.pose.position.x / info.resolution) + (info.width / 2));
-      y = Math.round((-msg.pose.pose.position.y / info.resolution) + (info.height / 2))
+      //x = Math.round((msg.pose.pose.position.x / info.resolution) + (info.width / 2));
+      //y = Math.round((-msg.pose.pose.position.y / info.resolution) + (info.height / 2))
 
+      let theta = Math.atan2(msg.pose.pose.position.y, msg.pose.pose.position.x);
+      let dista = Math.sqrt(Math.pow(msg.pose.pose.position.x, 2) + Math.pow(msg.pose.pose.position.y, 2));
+      let celldista = dista / info.resolution;
+      x = Math.round(Math.cos(theta) * celldista) + info.width / 2;
+      y = Math.round(Math.sin(theta) * celldista) + info.height / 2;
+      //console.log(msg.pose.pose.position.x +"\t"+ y);
       //console.log("turtle at X: "+ x +", Y: "+ y);
       //console.log(msg.pose.pose.position.y);
       //console.log(-(y - (info.width / 2)) * info.resolution);
       $("#AGV_posX").empty();
-      $("#AGV_posX").append(msg.pose.pose.position.x);
+      $("#AGV_posX").append(Math.floor(msg.pose.pose.position.x * 1000) / 1000);
       $("#AGV_posY").empty();
-      $("#AGV_posY").append(msg.pose.pose.position.y);
+      $("#AGV_posY").append(Math.floor(msg.pose.pose.position.y * 1000) / 1000);
       $("#AGV_posZ").empty();
-      $("#AGV_posZ").append(msg.pose.pose.position.z);
+      $("#AGV_posZ").append(Math.floor(msg.pose.pose.position.z * 1000) / 1000);
       $("#AGV_rotZ").empty();
-      $("#AGV_rotZ").append(msg.pose.pose.orientation.z);
-      $("#position").val(JSON.stringify(msg.pose.pose.position));
-      $("#orientation").val(JSON.stringify(msg.pose.pose.orientation));
+      let q = msg.pose.pose.orientation;
+      let yaw = Math.atan2(2.0*(q.x*q.y + q.w*q.z), q.w*q.w + q.x*q.x - q.y*q.y - q.z*q.z) * 180 / Math.PI;
+      $("#AGV_rotZ").append( Math.floor(yaw * 100) / 100);
+      //console.log(q);
+      //console.log(yaw);
+      $("#position").val("X: "+ Math.floor(msg.pose.pose.position.x * 1000) / 1000 +", Y: "+ Math.floor(msg.pose.pose.position.y * 1000) / 1000 +", Z: "+ Math.floor(msg.pose.pose.position.z * 1000) / 1000);
+      $("#orientation").val( Math.floor(yaw * 100) / 100);
       agvX = msg.pose.pose.position.x;
       agvX_pixel = x;
       agvY_pixel = y;
       agvY = msg.pose.pose.position.y;
       agvZ = msg.pose.pose.position.z;
-      orientation = msg.pose.pose.orientation;
+      orientation = y;
       $("#turtle").empty();
       $("#turtle").append(
           $('<div></div>')
@@ -319,7 +330,7 @@ function designRoute() {
               <h5 class="font-weight-bold">RotZ: <span id="AGV_rotZ" class="font-weight-normal"></span></h5>
           </div>
           <div id="designbox" class="col-sm-5 offset-sm-1" style="display: none;">
-              <h3 class="text-center font-weight-bold">AGV Route</h2>
+
           </div>
           <div class="col-sm-5">
               <div class="row">
