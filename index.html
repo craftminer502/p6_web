@@ -3,12 +3,12 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css">
-    <script type="text/javascript" src="http://static.robotwebtools.org/EventEmitter2/current/eventemitter2.js"></script>
-    <script type="text/javascript" src="http://static.robotwebtools.org/roslibjs/current/roslib.js"></script>
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"></script>
-    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.4.1/js/bootstrap.min.js"></script>
+    <link rel="stylesheet" href="/css/bootstrap.min.css">
+    <script type="text/javascript" src="/js/eventemitter2.js"></script>
+    <script type="text/javascript" src="/js/roslib.js"></script>
+    <script src="/js/jquery.min.js"></script>
+    <script src="/js/popper.min.js"></script>
+    <script src="/js/bootstrap.min.js"></script>
 <script type="text/javascript" type="text/javascript">
 
   $(function() {
@@ -38,11 +38,15 @@
   let agvX = 0;
   let agvY = 0;
   let agvZ = 0;
-  let orientation = 0;
+  let orientationX = 0;
+  let orientationY = 0;
+  let orientationZ = 0;
+  let orientationW = 0;
   let agvX_pixel = 0;
   let agvY_pixel = 0;
   let designing = false;
   let waypoints = [];
+  let running = false;
 
   class Teacher {
       constructor() {
@@ -53,7 +57,10 @@
         this._agvX = agvX;
         this._agvY = agvY;
         this._agvZ = agvZ;
-        this._orientation = orientation;
+        this._orientationX = orientationX;
+        this._orientationY = orientationY;
+        this._orientationZ = orientationZ;
+        this._orientationW = orientationW;
         this._agvX_pixel = agvX_pixel;
         this._agvY_pixel = agvY_pixel;
       }
@@ -85,15 +92,30 @@ function saveTeachPoint() {
   $("#teachPoints").empty();
   Teacher.list.forEach(function(item, index) {
       console.log(item._agvX_pixel);
-      $("#teachPoints").append(
-          $('<div id="mappedteachpoints-'+ item.pointName +'" class="teachc"></div>')
-              .css('position', 'absolute')
-              .css('top', item._agvY_pixel +'px')
-              .css('left', item._agvX_pixel +'px')
-              .css('width', 5)
-              .css('height', 5)
-              .css('background-color', 'green')
-      );
+      console.log("X: "+ item._agvX_pixel +"\tY: "+ item._agvY_pixel);
+      console.log("X: "+ agvX_pixel +"\tY: "+ agvY_pixel);
+      console.log(item._pointType);
+      if(item._pointType == "Pick point") {
+          $("#teachPoints").append(
+              $('<div id="mappedteachpoints-'+ item.pointName +'" class="teachpick"></div>')
+                  .css('position', 'absolute')
+                  .css('bottom', item._agvY_pixel - 4 +'px')
+                  .css('left', item._agvX_pixel - 4 +'px')
+                  .css('width', 9)
+                  .css('height', 9)
+                  .css('background-color', 'green')
+          );
+      } else {
+          $("#teachPoints").append(
+              $('<div id="mappedteachpoints-'+ item.pointName +'" class="teachdrop"></div>')
+                  .css('position', 'absolute')
+                  .css('bottom', item._agvY_pixel - 4 +'px')
+                  .css('left', item._agvX_pixel - 4 +'px')
+                  .css('width', 9)
+                  .css('height', 9)
+                  .css('background-color', 'blue')
+          );
+      }
       $('#mappedteachpoints-'+ item.pointName).click(function() {
           waypoints.push(item);
           poseArray.poses.push({position : {
@@ -101,10 +123,10 @@ function saveTeachPoint() {
               y : item._agvY,
               z : item._agvZ
           }, orientation : {
-              x : item._orientation.x,
-              y : item._orientation.y,
-              z : item._orientation.z,
-              w : item._orientation.w
+              x : item._orientationX,
+              y : item._orientationY,
+              z : item._orientationZ,
+              w : item._orientationW
           }});
           $('#designbox').empty();
           waypoints.forEach(function(item, index) {
@@ -115,7 +137,7 @@ function saveTeachPoint() {
               $('#point'+ index).append($('<option>'+ item.pointName +'</option>'));
               $('#point'+ index).val(item.pointName).change();
           });
-          $('#designbox').append($('<button type="button" type="submit" class="btn btn-outline-primary btn-block" onclick="publishPath();" style="font-size: 24px;">Pathlish</button>'));
+          $('#designbox').append($('<button type="button" type="submit" class="btn btn-outline-primary btn-block" onclick="publishPath();" style="font-size: 24px;">Start Route</button>'));
       });
   });
   console.log('%cDumping teach point array', 'color: #FFAA00');
@@ -125,17 +147,24 @@ function saveTeachPoint() {
 function designRoute() {
     designing = !designing;
     console.log(designing);
-    $('#designer').html(designing ? 'Design route' : 'End route');
+    $('#designer').html(designing ? 'End route' : 'Design route');
     if(designing) {
         $("#turtle").hide();
         $('#infobox').hide();
         $('#designbox').show();
         $('#designbox').empty();
         $('#designbox').append($('<h3 class="text-center font-weight-bold">AGV Route</h2>'));
+        /*$('div[id^=mappedteachpoints]').animate({
+            "transform": "scale(2)"
+        });*/
+        console.log("nothing for now");
     } else {
         $("#turtle").show();
         $('#designbox').hide();
         $('#infobox').show();
+        /*$('div[id^=mappedteachpoints]').animate({
+            "transform": "scale(0.5)"
+        });*/
     }
 }
 
@@ -196,6 +225,13 @@ function designRoute() {
       name: '/uipath',
       messageType : 'geometry_msgs/PoseArray'
   });
+
+  let result = new ROSLIB.Topic({
+      ros : ros,
+      name : '/move_base/result',
+      messageType : 'move_base_msgs/MoveBaseActionResult'
+  });
+
   pathlisher.publish();
 
   let poseArray = new ROSLIB.Message({
@@ -211,17 +247,29 @@ function designRoute() {
   });
 
   function publishPath() {
-      pathlisher.publish(poseArray);
+      //pathlisher.publish(poseArray);
       //poseArray.poses.length = 0;
+      running = true;
+      goal.goalMessage.goal_id.id = 'goal_' + Math.random();
+      goal.goalMessage.goal.target_pose.pose.position.x = agvX;
+      goal.goalMessage.goal.target_pose.pose.position.y = agvY;
+      goal.goalMessage.goal.target_pose.pose.position.z = agvZ;
+      goal.goalMessage.goal.target_pose.pose.orientation.x = orientationX
+      goal.goalMessage.goal.target_pose.pose.orientation.y = orientationY;
+      goal.goalMessage.goal.target_pose.pose.orientation.z = orientationZ;
+      goal.goalMessage.goal.target_pose.pose.orientation.w = orientationW;
+      console.log(JSON.stringify(goal.goalMessage));
+      goal.send();
   }
 
   let info = undefined;
 
   function mapSub(msg) {
       map.unsubscribe();
+      info = msg.info;
+      console.log(JSON.stringify(info.origin));
       //console.log('Received message on '+ map.name);
       //console.log(JSON.stringify(msg.info));
-      info = msg.info;
       //console.log(resolution);
       $("#map").animate({
           "width": msg.info.width +"px",
@@ -231,13 +279,17 @@ function designRoute() {
           "width": msg.info.width +"px",
           "height": msg.info.height +"px"
       });
+      $("#teachPoints").animate({
+          "width": msg.info.width +"px",
+          "height": msg.info.height +"px"
+      });
       $("#map").empty();
       jQuery.each(msg.data, function(i, val) {
           if(val == 100) {
               $("#map").append(
                   $('<div></div>')
                       .css('position', 'absolute')
-                      .css('top', Math.floor(i / msg.info.width) +'px')
+                      .css('top', msg.info.height - Math.floor(i / msg.info.width) +'px')
                       .css('left', (i % msg.info.width) +'px')
                       .css('width', 1)
                       .css('height', 1)
@@ -263,8 +315,10 @@ function designRoute() {
       let theta = Math.atan2(msg.pose.pose.position.y, msg.pose.pose.position.x);
       let dista = Math.sqrt(Math.pow(msg.pose.pose.position.x, 2) + Math.pow(msg.pose.pose.position.y, 2));
       let celldista = dista / info.resolution;
-      x = Math.round(Math.cos(theta) * celldista) + info.width / 2;
-      y = Math.round(Math.sin(theta) * celldista) + info.height / 2;
+      //x = Math.round(Math.cos(theta) * celldista) + info.width / 2;
+      //y = Math.round(Math.sin(theta) * celldista) + info.height / 2;
+      x = Math.floor((10 + msg.pose.pose.position.x) / info.resolution);
+      y = Math.floor((10 + msg.pose.pose.position.y) / info.resolution);
       //console.log(msg.pose.pose.position.x +"\t"+ y);
       //console.log("turtle at X: "+ x +", Y: "+ y);
       //console.log(msg.pose.pose.position.y);
@@ -289,11 +343,15 @@ function designRoute() {
       agvY = msg.pose.pose.position.y;
       agvZ = msg.pose.pose.position.z;
       orientation = y;
+      orientationX = msg.pose.pose.orientation.x;
+      orientationY = msg.pose.pose.orientation.y;
+      orientationZ = msg.pose.pose.orientation.z;
+      orientationW = msg.pose.pose.orientation.w;
       $("#turtle").empty();
       $("#turtle").append(
           $('<div></div>')
               .css('position', 'absolute')
-              .css('top', y +'px')
+              .css('bottom', y +'px')
               .css('left', x +'px')
               .css('width', 5)
               .css('height', 5)
@@ -301,8 +359,63 @@ function designRoute() {
       );
   }
 
+  ros.on('connection', function() {
+    console.log('ROS has connected!');
+  });
+
+  /*goal.on('result', function(result) {
+      console.log("www");
+      let dumpsterpoint = waypoints.shift();
+      console.log("dumpstered:\t"+ dumpsterpoint.pointName);
+      goal.goalMessage.goal_id.id = 'goal_' + Math.random();
+      goal.goalMessage.goal.target_pose.pose.position.x = dumpsterpoint._agvX;
+      goal.goalMessage.goal.target_pose.pose.position.y = dumpsterpoint._agvY;
+      goal.goalMessage.goal.target_pose.pose.position.z = dumpsterpoint._agvZ;
+      goal.goalMessage.goal.target_pose.pose.orientation = dumpsterpoint._orientation;
+      console.log(JSON.stringify(goal.goalMessage));
+      goal.send();
+      $('#designbox').empty();
+      waypoints.forEach(function(item, index) {
+          $('#designbox').append($('<select id="point'+ index +'" class="form-control"></select>'));
+          /*Teacher.list.forEach(function(item, index) {
+              $('#point'+ index).append($('<option>'+ item.pointName +'</option>'));
+          });
+          $('#point'+ index).append($('<option>'+ item.pointName +'</option>'));
+          $('#point'+ index).val(item.pointName).change();
+      });
+  });*/
+
   map.subscribe(mapSub);
   odom.subscribe(odomSub);
+
+  //Simple fix for the actionstuff
+  let routec = 0;
+  result.subscribe(function (msg) {
+      console.log(JSON.stringify(msg.status.text));
+      if(msg.status.text === "Goal reached." && waypoints.length > 0 && running) {
+          let dumpsterpoint = waypoints[routec++ % waypoints.length];
+          console.log("dumpstered:\t"+ dumpsterpoint.pointName);
+          goal.goalMessage.goal_id.id = 'goal_' + Math.random();
+          goal.goalMessage.goal.target_pose.pose.position.x = dumpsterpoint._agvX;
+          goal.goalMessage.goal.target_pose.pose.position.y = dumpsterpoint._agvY;
+          goal.goalMessage.goal.target_pose.pose.position.z = dumpsterpoint._agvZ;
+          goal.goalMessage.goal.target_pose.pose.orientation.x = dumpsterpoint._orientationX;
+          goal.goalMessage.goal.target_pose.pose.orientation.y = dumpsterpoint._orientationY;
+          goal.goalMessage.goal.target_pose.pose.orientation.z = dumpsterpoint._orientationZ;
+          goal.goalMessage.goal.target_pose.pose.orientation.w = dumpsterpoint._orientationW;
+          goal.send();
+          $('#designbox').empty();
+          waypoints.forEach(function(item, index) {
+              $('#designbox').append($('<select id="point'+ index +'" class="form-control"></select>'));
+              /*Teacher.list.forEach(function(item, index) {
+                  $('#point'+ index).append($('<option>'+ item.pointName +'</option>'));
+              });*/
+              $('#point'+ index).append($('<option>'+ item.pointName +'</option>'));
+              $('#point'+ index).val(item.pointName).change();
+          });
+      }
+
+  });
   /*setInterval(function() {
       map.subscribe(mapSub);
   }, 5000);*/
